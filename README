@@ -1,0 +1,342 @@
+Secure Linux - Debian
+Installation de base
+
+Installation minimale avec SSH et installer les services désirés selon la section : « sécurité service ». Vérification des mises a jour disponibles. (ref. :http://www.cyberciti.biz/tips/linux-unix-bsd-nginx-webserver-security.html ).
+Sécurisation linux de base par script security.pl
+
+Il est préférable d'utiliser une version récente de la distribution DEBIAN (wheezy de préférence), pour une utilisation optimale du script. Il fonctionne aussi avec centos, mais il est préférable d'être sous Centos 6 (il n'a pas encore été testé sous cette distrib…).
+
+Requis script : apt-get install -y libexpect-perl
+
+Les étapes réalisées par le script :
+
+    1) Vérification de la distribution
+    2) Vérification de la version du kernel (pour CGROUPS)
+    3) Vérification de la présence d'une interface d'administration sur un réseau privé
+    4) Activation de CGROUPS dans le kernel et installation des outils d'administration. Cgroups est une fonctionnalité du kernel qui permet d'appliquer des restrictions sur les ressources systèmes. Il sert par exemple à LXC.
+    5) Installation de TOMOYO et activation dans le kernel. Tomoyo est un « mandatory access control » (MAC). Il permet de contrôler et restreindre l'action d'un processus. (Ref. :http://tomoyo.sourceforge.jp/ ).
+    6) Reboot du système pour la prise en charge du cgroups et de tomoyo
+    7) Mise a jour automatique des packages installés
+    8) Mise en place de la mise a jour automatique des packages contenant un problème de sécurité.
+    9) Installation de auditd et mise en place de règles pas defaut :Ref : http://tarantule.blogspot.fr/2008/05/auditd-configuration-on-linux-to-track.html & http://xmodulo.com/2013/05/how-to-monitor-file-access-on-linux.html & http://my.opera.com/devloop/blog/show.dml/2036593
+        1. audit de toutes les commandes exécutées par le système (trace action ↔ user)
+        2. audit tous les appels au exécutable en SUID et SGID.
+        3. audit tous les accès aux fichiers sensibles (shadow, etc, …)
+        4. audit tous les appels au syscall connect (trace connexion ↔ app ) . Autre possibilité netatop ref. : http://www.atoptool.nl/netatop.php
+        5. audit tous accès refusés à une ressource (trace accès denied ↔ user )
+        6. audit tous appel à ptrace
+    10) Installation d'OSSEC en mode agent et mise en place de règles par défaut. OSSEC est un IDS local permettant d'analyser les logs, les modifications effectuer sur le systèmes, … OSSEC permet de centraliser plusieurs clients vers un serveur centrale. Ref. :http://blog.gaetan-grigis.eu/tag/ossec/ & http://wiki.kogite.fr/index.php/OSSEC_installation
+    11) Mise en place de hosts.deny & hosts.allow. On accepte rien par defaut.
+    12) Création des règles iptables ref. : http://www.snowman.net/projects/ipt_recent/
+        1. Tous refusé (INPUT/OUTPUT/FORWARD)
+        2. Accepter loopback
+        3. Accepter icmp ping
+        4. Accepter la résolution DNS sur le serveur DNS interne
+        5. Accepter l'accès au depot de package
+        6. DROP : syn attaque, fragments, xmas packet, null packet
+        7. Accepter tous les services selon des regles strictes : ntp(seulement output vers serveur ntp), ssh (seulement clt d'administration), nrpe (seulement le serveur nagios), syslog(seulement le serveur centralisateur syslog), …
+    13) Création des règles de QOS avec TC & iptables
+        1. Creation de deux classe parent : une sur la carte interne (PRIVE ADMIN) et l'autre sur la carte externe (INTERNET/INTRANET)
+        2. Creation de 5 classes de limitation : seuil a définir selon les besoins. Algorithme HTB qui limite la vitesse d'une classe et qui la priorise. On peut aussi définir la possibilité de dépasser la limite si les autres classes n'utilisent pas complètement leur bande…
+    14) Installation de l'outil svn afin de pouvoir récupérer des fichiers de configuration centralisé.
+    15) Installation des services de base
+        Chaque service de base est configurés de façon à limiter la surface d'attaque possible : limitation du bind au minimum, restriction IP &| utilisateur, …
+        Une règles iptables est mise en place de façon stricte comme vu précédemment.
+        Une règles d'acceptation peut être rajouté dans hosts.allow selon le service.
+        Une limitation TOMOYO (profile 3) doit être appliqué après avoir validé l'apprentissage et affiné ce dernier.
+        1. NTP
+        2. SSH : tous utilisateurs ayant le droit au ssh doit être rajouté dans le groupe « sshusers ». (ex : usermod -a -G sshusers NOMUSER)
+            Tous les utilisateurs doivent se connecter avec le système de certificat. Il est préférable d'utiliser les passphrases pour éviter la récupération de certificat. Le passphrase peut ne pas être taper a chaque ouverture de connexion grâce à « ssh-agent ». (Ref. : http://www.linux-france.org/prj/edu/archinet/systeme/ch13s03.html)
+            Fail2ban est installé afin de garantir la sécurité au bruteforce.
+        3. NRPE : Installation de plusieurs commandes internes utiles à la supervision :
+            1. Checkdisk quota : racine, usr ,var, tmp, home
+            2. DNS resolution
+            3. Etat des packages installés
+            4. SWAP & memoire
+        5. SSH
+        6. NTP
+        7. SMTP local
+        8. certificat vérification de l'expiration
+        9. ossec
+        10. SYSLOG : centralisation des logs
+    16) Installation de postfix et configuration minimal local avec bloquage d'envoi et réception sur le domaine interne. Mise en place d'une règle iptables & QOS & TOMOYO
+    17) Possibilité d'installation de SSHFS afin d'éviter l'utilisation non sécurisé de NFS
+    18) Vérification des packages installés (a l'installation, dépendance, après installation)
+        Limitation de la surface d'exploitation par les packages (éviter les outils de compilation, wget, curl, ….). Enlever les packages non utilisés.
+    19) Vérification de la surface d'attaque au niveau kernel
+        1. Vérification de l'activation de ASLR
+        2. Téléchargement du script http://www.trapkit.de/tools/checksec.sh et vérification type kernel
+        3. Vérification du sysctl : attention limitation de l'import de nouveau module par « /proc/sys/kernel/modules_disabled == 1 » (Ref : http://www.frozentux.net/ipsysctl-tutorial/ipsysctl-tutorial.html)
+    20) Vérification de la surface d'attaque sur les proccès lancés ( & services)
+        1. Notation du processus selon différents critères :
+            1. utilisation de socket IPV4
+            2. package ou logiciel installé hors package
+            3. Service lancé au démarrage ? (init.d)
+            4. compilation sécurisé: http://wiki.debian.org/Hardening
+            5. compilation sécurisé des bibliotèques utilisées : http://wiki.debian.org/Hardening
+        2. Possibilité de mettre en place tomoyo, cgroups, iptables, QOS, tcp wrapper sur les processus liés à un service utilisant l'ipv4
+    21) Vérification des services installés (lancé et non lancé)
+        1. Donne des conseilles de configuration pour les services sensibles lancés : apache, named, dhcp,… (en cours)
+    22) Vérification de la surface d'attaque SUID & SGID
+    23) Vérification des fichiers sans propriétaire
+    24) Vérification des fichiers systèmes avec droit en écriture
+    25) Vérification des droits de montage des principales partitions
+        (Ref. : http://blog.hbis.fr/2013/01/09/linux-mountpoints_restrictions/ )
+    26) Vérification des utilisateurs et des groups sur le systèmes
+        création de restrictions par cgroups & ulimit
+    27) Limitation par ulimit globale
+    28) Limitation de l'accès a la crontab par cron.deny & cron.allow
+    29) Limitation de l'accès a AT par at.deny & at.allow
+    30) Modification de /etc/issue & /etc/motd
+    31) Limitation de l'accès a l'ouverture de session root au TTY1
+    32) Limitation de l'accès a la commande su au utilisateurs faisant partie du goupe « wheel »
+    33) Restriction de l'extinction du serveur par « ctrl+alt+suppr » et ACPI
+    34) Mise en place d'envoi d'informations pertinentes vers le SIEM [en cours]
+    35) limite sur user /etc/login,defs ou /etc/pam.d/limits.conf
+        Ref.: http://mwiki.yyovkov.net/index.php/Linux_Security_Check_Script
+        http://www.debian.org/doc/manuals/securing-debian-howto/ch4.en.html
+    36) Installation de snort si besoin très ciblé avec très peu de signatures (max 100 selon le debit) [en cours]
+
+OSSEC - AUDITD/TOMOYO
+
+    Script auditd -> ossec: audit.pl
+    AUDITD & TOMOYO → OSSEC: rules & decoder (OSSEC analysis tomoyo log use multiline 4)
+
+<decoder name="auditd">
+  <prematch>^type=</prematch>
+</decoder>
+<decoder name="auditd-connect">
+    <parent>auditd</parent>
+    <program_name>auditd-connect</program_name>
+    <prematch offset="after_parent">info_connect</prematch>
+    <regex offset="after_parent">^SYSCALL msg=audit\(\d\d\d\d\d\d\d\d\d\d.\d\d\d:(\d+)\): arch=\w+ syscall=\d+ success=\S+ exit=\S+ a0=\w+ a1=\w+ a2=\w+ a3=\w+ items=\d+ ppid=\d+ pid=(\d+) auid=\d+ uid=(\d+) gid=\d+ euid=\d+ suid=\d+ fsuid=\d+ egid=\d+ sgid=\d+ fsgid=\d+ tty=\.+ ses=\d+ comm="\S+" exe="(\.+)" key="info_connect" SOCKADDR saddr=(\S+) saddr_ip=(\S+) saddr_port=(\d+) saddr_family=AF_INET</regex>
+    <order>id,status,user,action,extra_data,dstip,dstport</order>
+</decoder>
+<decoder name="auditd-bind">
+    <parent>auditd</parent>
+    <program_name>auditd-bind</program_name>
+    <prematch offset="after_parent">info_bind</prematch>
+    <regex offset="after_parent">^SYSCALL msg=audit\(\d\d\d\d\d\d\d\d\d\d.\d\d\d:(\d+)\): arch=\w+ syscall=\d+ success=\S+ exit=\S+ a0=\w+ a1=\w+ a2=\w+ a3=\w+ items=\d+ ppid=\d+ pid=(\d+) auid=\d+ uid=(\d+) gid=\d+ euid=\d+ suid=\d+ fsuid=\d+ egid=\d+ sgid=\d+ fsgid=\d+ tty=\.+ ses=\d+ comm="\S+" exe="(\.+)" key="info_bind" SOCKADDR saddr=(\S+) saddr_ip=(\S+) saddr_port=(\d+) saddr_family=AF_INET</regex>
+    <order>id,status,user,action,extra_data,dstip,dstport</order>
+</decoder>
+<decoder name="auditd-ptrace">
+    <parent>auditd</parent>
+    <program_name>auditd-ptrace</program_name>
+    <prematch offset="after_parent">info_ptrace</prematch>
+    <regex offset="after_parent">^SYSCALL msg=audit\(\d\d\d\d\d\d\d\d\d\d.\d\d\d:(\d+)\): arch=\w+ syscall=\d+ success=\S+ exit=\S+ a0=\w+ a1=\w+ a2=\w+ a3=\w+ items=\d+ ppid=\d+ pid=(\d+) auid=\d+ uid=(\d+) gid=\d+ euid=\d+ suid=\d+ fsuid=\d+ egid=\d+ sgid=\d+ fsgid=\d+ tty=\.+ ses=\d+ comm="\S+" exe="(\.+)" key="info_ptrace"</regex>
+    <order>id,status,user,action</order>
+</decoder>
+<decoder name="auditd-suid">
+    <parent>auditd</parent>
+    <program_name>auditd-suid</program_name>
+    <prematch offset="after_parent">info_execve_suid</prematch>
+    <regex offset="after_parent">^SYSCALL msg=audit\(\d\d\d\d\d\d\d\d\d\d.\d\d\d:(\d+)\): arch=\w+ syscall=\d+ success=\S+ exit=\S+ a0=\w+ a1=\w+ a2=\w+ a3=\w+ items=\d+ ppid=\d+ pid=(\d+) auid=\d+ uid=(\d+) gid=\d+ euid=\d+ suid=\d+ fsuid=\d+ egid=\d+ sgid=\d+ fsgid=\d+ tty=\.+ ses=\d+ comm="\S+" exe="(\.+)" key="info_execve_suid\d+"</regex>
+    <order>id,status,user,action</order>
+</decoder>
+<decoder name="auditd-sgid">
+    <parent>auditd</parent>
+    <program_name>auditd-sgid</program_name>
+    <prematch offset="after_parent">info_execve_sgid</prematch>
+    <regex offset="after_parent">^SYSCALL msg=audit\(\d\d\d\d\d\d\d\d\d\d.\d\d\d:(\d+)\): arch=\w+ syscall=\d+ success=\S+ exit=\S+ a0=\w+ a1=\w+ a2=\w+ a3=\w+ items=\d+ ppid=\d+ pid=(\d+) auid=\d+ uid=(\d+) gid=\d+ euid=\d+ suid=\d+ fsuid=\d+ egid=\d+ sgid=\d+ fsgid=\d+ tty=\.+ ses=\d+ comm="\S+" exe="(\.+)" key="info_execve_sgid\d+"</regex>
+    <order>id,status,user,action</order>
+</decoder>
+<decoder name="auditd-shadow">
+    <parent>auditd</parent>
+    <program_name>auditd-shadow</program_name>
+    <prematch offset="after_parent">info_shadow_watch</prematch>
+    <regex offset="after_parent">^SYSCALL msg=audit\(\d\d\d\d\d\d\d\d\d\d.\d\d\d:(\d+)\): arch=\w+ syscall=\d+ success=\S+ exit=\S+ a0=\w+ a1=\w+ a2=\w+ a3=\w+ items=\d+ ppid=\d+ pid=(\d+) auid=\d+ uid=(\d+) gid=\d+ euid=\d+ suid=\d+ fsuid=\d+ egid=\d+ sgid=\d+ fsgid=\d+ tty=\.+ ses=\d+ comm="\S+" exe="(\.+)" key="info_shadow_watch"</regex>
+    <order>id,status,user,action</order>
+</decoder>
+<decoder name="auditd-etc">
+    <parent>auditd</parent>
+    <program_name>auditd-etc</program_name>
+    <prematch offset="after_parent">info_etc_write</prematch>
+    <regex offset="after_parent">^SYSCALL msg=audit\(\d\d\d\d\d\d\d\d\d\d.\d\d\d:(\d+)\): arch=\w+ syscall=\d+ success=\S+ exit=\S+ a0=\w+ a1=\w+ a2=\w+ a3=\w+ items=\d+ ppid=\d+ pid=(\d+) auid=\d+ uid=(\d+) gid=\d+ euid=\d+ suid=\d+ fsuid=\d+ egid=\d+ sgid=\d+ fsgid=\d+ tty=\.+ ses=\d+ comm="\S+" exe="(\.+)" key="info_etc_write" \.* type=PATH msg=audit\(\d\d\d\d\d\d\d\d\d\d.\d\d\d:\d+\): item=\d+ name="(\.+)" inode=\d+ dev=\S+ mode=\d+ ouid=\d+ ogid=\d+ rdev=\S+</regex>
+    <order>id,status,user,action,extra_data</order>
+</decoder>
+<decoder name="auditd-module">
+    <parent>auditd</parent>
+    <program_name>auditd-module</program_name>
+    <prematch offset="after_parent">modules_change</prematch>
+    <regex offset="after_parent">^SYSCALL msg=audit\(\d\d\d\d\d\d\d\d\d\d.\d\d\d:(\d+)\): arch=\w+ syscall=\d+ success=\S+ exit=\S+ a0=\w+ a1=\w+ a2=\w+ a3=\w+ items=\d+ ppid=\d+ pid=(\d+) auid=\d+ uid=(\d+) gid=\d+ euid=\d+ suid=\d+ fsuid=\d+ egid=\d+ sgid=\d+ fsgid=\d+ tty=\.+ ses=\d+ comm="\S+" exe="(\.+)" key="modules_change"</regex>
+    <order>id,status,user,action</order>
+</decoder>
+<decoder name="auditd-hostname">
+    <parent>auditd</parent>
+    <program_name>auditd-hostname</program_name>
+    <prematch offset="after_parent">hostname_change</prematch>
+    <regex offset="after_parent">^SYSCALL msg=audit\(\d\d\d\d\d\d\d\d\d\d.\d\d\d:(\d+)\): arch=\w+ syscall=\d+ success=\S+ exit=\S+ a0=\w+ a1=\w+ a2=\w+ a3=\w+ items=\d+ ppid=\d+ pid=(\d+) auid=\d+ uid=(\d+) gid=\d+ euid=\d+ suid=\d+ fsuid=\d+ egid=\d+ sgid=\d+ fsgid=\d+ tty=\.+ ses=\d+ comm="\S+" exe="(\.+)" key="hostname_change"</regex>
+    <order>id,status,user,action</order>
+</decoder>
+<decoder name="auditd-delete">
+    <parent>auditd</parent>
+    <program_name>auditd-delete</program_name>
+    <prematch offset="after_parent">info_delete_user</prematch>
+    <regex offset="after_parent">^SYSCALL msg=audit\(\d\d\d\d\d\d\d\d\d\d.\d\d\d:(\d+)\): arch=\w+ syscall=\d+ success=\S+ exit=\S+ a0=\w+ a1=\w+ a2=\w+ a3=\w+ items=\d+ ppid=\d+ pid=(\d+) auid=\d+ uid=(\d+) gid=\d+ euid=\d+ suid=\d+ fsuid=\d+ egid=\d+ sgid=\d+ fsgid=\d+ tty=\.+ ses=\d+ comm="\S+" exe="(\.+)" key="info_delete_user"</regex>
+    <order>id,status,user,action</order>
+</decoder>
+<decoder name="auditd-erreurperm">
+    <parent>auditd</parent>
+    <program_name>auditd-erreurperm</program_name>
+    <prematch offset="after_parent">erreur_perm</prematch>
+    <regex offset="after_parent">^SYSCALL msg=audit\(\d\d\d\d\d\d\d\d\d\d.\d\d\d:(\d+)\): arch=\w+ syscall=\d+ success=\S+ exit=\S+ a0=\w+ a1=\w+ a2=\w+ a3=\w+ items=\d+ ppid=\d+ pid=(\d+) auid=\d+ uid=(\d+) gid=\d+ euid=\d+ suid=\d+ fsuid=\d+ egid=\d+ sgid=\d+ fsgid=\d+ tty=\.+ ses=\d+ comm="\S+" exe="(\.+)" key="erreur_perm" \.* name="(\.*)" </regex>
+    <order>id,status,user,action,extra_data</order>
+</decoder>
+<decoder name="auditd-erreuraccess">
+    <parent>auditd</parent>
+    <program_name>auditd-erreuraccess</program_name>
+    <prematch offset="after_parent">erreur_access</prematch>
+    <regex offset="after_parent">^SYSCALL msg=audit\(\d\d\d\d\d\d\d\d\d\d.\d\d\d:(\d+)\): arch=\w+ syscall=\d+ success=\S+ exit=\S+ a0=\w+ a1=\w+ a2=\w+ a3=\w+ items=\d+ ppid=\d+ pid=(\d+) auid=\d+ uid=(\d+) gid=\d+ euid=\d+ suid=\d+ fsuid=\d+ egid=\d+ sgid=\d+ fsgid=\d+ tty=\.+ ses=\d+ comm="\S+" exe="(\.+)" key="erreur_access" \.* name="(\.*)" </regex>
+    <order>id,status,user,action,extra_data</order>
+</decoder>
+<decoder name="auditd-erreurro">
+    <parent>auditd</parent>
+    <program_name>auditd-erreurro</program_name>
+    <prematch offset="after_parent">erreur_lecture_seul</prematch>
+    <regex offset="after_parent">^SYSCALL msg=audit\(\d\d\d\d\d\d\d\d\d\d.\d\d\d:(\d+)\): arch=\w+ syscall=\d+ success=\S+ exit=\S+ a0=\w+ a1=\w+ a2=\w+ a3=\w+ items=\d+ ppid=\d+ pid=(\d+) auid=\d+ uid=(\d+) gid=\d+ euid=\d+ suid=\d+ fsuid=\d+ egid=\d+ sgid=\d+ fsgid=\d+ tty=\.+ ses=\d+ comm="\S+" exe="(\.+)" key="erreur_lecture_seul" \.* name="(\.*)" </regex>
+    <order>id,status,user,action,extra_data</order>
+</decoder>
+<decoder name="auditd-login">
+    <parent>auditd</parent>
+    <program_name>auditd-login</program_name>
+    <prematch offset="after_parent">LOGIN msg=audit</prematch>
+    <regex offset="after_parent">^LOGIN msg=audit\(\d\d\d\d\d\d\d\d\d\d.\d\d\d:(\d+)\): login pid=(\d+) uid=\d+ old auid=\d+ new auid=(\d+)</regex>
+    <order>id,status,user</order>
+</decoder>
+<decoder name="auditd-config">
+    <parent>auditd</parent>
+    <program_name>auditd-config</program_name>
+    <prematch offset="after_parent">CONFIG_CHANGE msg=audit</prematch>
+    <regex offset="after_parent">^CONFIG_CHANGE msg=audit\(\d\d\d\d\d\d\d\d\d\d.\d\d\d:(\d+)\): auid=(\d+) ses=\d+ op="(\S+)" key="(\S+)"</regex>
+    <order>id,user,action,extra_data</order>
+</decoder>
+
+<group name="syslog,auditd,">
+  <rule id="100101" level="10">
+    <decoded_as>auditd</decoded_as>
+    <match>erreur_lecture_seul</match>
+    <group>access_denied</group>
+    <description>AUDITD accès syscall write/creat/open/openat/truncate/ftruncate sur un ressource en lecture seul...</description>
+  </rule>
+  <rule id="100102" level="10">
+    <decoded_as>auditd</decoded_as>
+    <match>erreur_perm</match>
+    <group>access_denied</group>
+    <description>AUDITD accès syscall write/creat/open/openat/truncate/ftruncate refusé -> operation non permise...</description>
+  </rule>
+  <rule id="100103" level="10">
+    <decoded_as>auditd</decoded_as>
+    <match>erreur_access</match>
+    <group>access_denied</group>
+    <description>AUDITD accès syscall write/creat/open/openat/truncate/ftruncate refusé -> operation non permise</description>
+  </rule>
+  <rule id="100104" level="7">
+    <decoded_as>auditd</decoded_as>
+    <match>info_delete_user</match>
+    <group>access_denied</group>
+    <description>AUDITD utilisateur ayant utilisé le syscall unlink/unlinkat/rename/renameat</description>
+  </rule>
+  <rule id="100105" level="10">
+    <decoded_as>auditd</decoded_as>
+    <match>hostname_change</match>
+    <group>access_denied</group>
+    <description>AUDITD changement hostname</description>
+  </rule>
+  <rule id="100106" level="10">
+    <decoded_as>auditd</decoded_as>
+    <match>modules_change</match>
+    <group>access_denied</group>
+    <description>AUDITD changement des modules kernel</description>
+  </rule>
+  <rule id="100107" level="10">
+    <decoded_as>auditd</decoded_as>
+    <match>info_ptrace</match>
+    <group>access_denied</group>
+    <description>AUDITD utilisation de ptrace...</description>
+  </rule>
+  <rule id="100108" level="10">
+    <decoded_as>auditd</decoded_as>
+    <match>info_etc_write</match>
+    <group>access_denied</group>
+    <description>AUDITD ecriture dans /etc</description>
+  </rule>
+  <rule id="100109" level="10">
+    <decoded_as>auditd</decoded_as>
+    <match>info_shadow_watch</match>
+    <group>access_denied</group>
+    <description>AUDITD lecture sur fichier shadow</description>
+  </rule>
+  <rule id="100110" level="10">
+    <decoded_as>auditd</decoded_as>
+    <match>info_execve_sgid</match>
+    <group>access_denied</group>
+    <description>AUDITD execution programme SDID</description>
+  </rule>
+  <rule id="100111" level="10">
+    <decoded_as>auditd</decoded_as>
+    <match>info_execve_suid</match>
+    <group>access_denied</group>
+    <description>AUDITD execution programme SUID</description>
+  </rule>
+  <rule id="100112" level="10">
+    <decoded_as>auditd</decoded_as>
+    <match>info_bind</match>
+    <group>access_denied</group>
+    <description>AUDITD utilisation du syscall BIND sur socket AF_INET</description>
+  </rule>
+  <rule id="100113" level="10">
+    <decoded_as>auditd</decoded_as>
+    <match>info_connect</match>
+    <group>access_denied</group>
+    <description>AUDITD utilisation du syscall CONNECT sur socket AF_INET</description>
+  </rule>
+  <rule id="100114" level="5">
+    <decoded_as>auditd</decoded_as>
+    <match>type=LOGIN</match>
+    <group>access_denied</group>
+    <description>AUDITD login user</description>
+  </rule>
+  <rule id="100115" level="5">
+    <decoded_as>auditd</decoded_as>
+    <match>type=CONFIG_CHANGE</match>
+    <group>access_denied</group>
+    <description>AUDITD config interne change</description>
+  </rule>
+</group>
+
+/bin/echo "/usr/bin/tail -F /var/log/audit/audit.log|/usr/bin/perl /usr/local/bin/audit.pl > /var/log/audit/audit_custom.log" > /etc/rc.local
+
+logrotate /var/log/audit/audit_custom.log
+/bin/ps aux|/bin/grep -i "/usr/bin/perl /usr/local/bin/audit.pl"|/usr/bin/awk '{print "/bin/kill " $2}'|/bin/sh;/bin/sleep 1;/bin/ps aux|/bin/grep -i "/usr/bin/perl /usr/local/bin/audit.pl"|/usr/bin/awk '{print "/bin/kill -9 " $2}'
+
+
+<decoder name="tomoyo">
+  <prematch>^#\d\d\d\d/\d\d/\d\d \d\d:\d\d:\d\d# </prematch>
+</decoder>
+<decoder name="tomoyo-profile">
+    <parent>tomoyo</parent>
+    <prematch offset="after_parent">^profile=3 </prematch>
+    <regex offset="after_parent">^profile=3 \.* pid=(\d+) \.* uid=(\d+) \.* \.kernel\. (\.*) (\.*)$</regex>
+    <order>status,user,action,extra_data</order>
+</decoder>
+<decoder name="tomoyo-profile">
+    <parent>tomoyo</parent>
+    <prematch offset="after_parent">^profile=2 </prematch>
+    <regex offset="after_parent">^profile=2 \.* pid=(\d+) \.* uid=(\d+) \.* \.kernel\. (\.*) (\.*)$</regex>
+    <order>status,user,action,extra_data</order>
+</decoder>
+
+<group name="syslog,tomoyo,">
+  <rule id="100201" level="10">
+    <decoded_as>tomoyo</decoded_as>
+    <match>profile=3</match>
+    <group>access_denied</group>
+    <description>TOMOYO accès sur un ressource refusé...</description>
+  </rule>
+  <rule id="100202" level="10">
+    <decoded_as>tomoyo</decoded_as>
+    <match>profile=2</match>
+    <group>access_denied</group>
+    <description>TOMOYO accès sur un ressource authorisé mais non connu...</description>
+  </rule>
+</group>
